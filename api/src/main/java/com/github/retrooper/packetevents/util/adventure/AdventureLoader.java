@@ -36,6 +36,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -99,13 +100,13 @@ public final class AdventureLoader {
     private AdventureLoader() {
     }
 
-    public static Set<Path> injectAll(URLClassLoader classLoader, Logger logger) {
+    public static Set<Path> injectAll(URLClassLoader classLoader, Path cacheDirectory, Logger logger) {
         // check each adventure dependency
         Set<Path> injectedJars = new HashSet<>();
         for (Dependency dependency : DEPENDENCIES) {
             if (!dependency.isAvailable()) {
                 logger.info("Loading dependency " + dependency + "...");
-                injectedJars.add(dependency.inject(REPO_URI, classLoader));
+                injectedJars.add(dependency.inject(REPO_URI, cacheDirectory, classLoader, logger));
             }
         }
         return injectedJars;
@@ -192,11 +193,20 @@ public final class AdventureLoader {
             return Reflection.getClassByNameWithoutException(this.className) != null;
         }
 
-        public Path inject(URI repoUri, URLClassLoader classLoader) {
+        public Path inject(URI repoUri, Path cacheDirectory, URLClassLoader classLoader, Logger logger) {
             // resolve maven-based artifact url at {repo}{groupId}/{artifactId}/{version}/{artifactId}-{version}.jar
             URI artifactUri = repoUri.resolve(this.groupId.replace('.', '/') + "/" + this.artifactId
                     + "/" + this.version + "/" + this.artifactId + "-" + this.version + ".jar");
-            System.out.println("LOADING FROM " + artifactUri);
+            Path cachedArtifact = cacheDirectory.resolve(this.groupId.replace('.', '/'))
+                    .resolve(this.artifactId)
+                    .resolve(this.version)
+                    .resolve(this.artifactId + "-" + this.version + ".jar");
+            if (Files.isRegularFile(cachedArtifact)) {
+                logger.info("Loading cached dependency " + this + "...");
+                return this.inject(cachedArtifact, classLoader);
+            }
+
+            logger.info("Downloading dependency " + this + " from " + artifactUri + "...");
             // can't use java 11's http client because we still support java 8
             HttpsURLConnection connection;
             try {
@@ -209,15 +219,44 @@ public final class AdventureLoader {
                 connection.setReadTimeout(10000);
                 connection.connect();
 
-                // inject jar directly from url into classpath
-                try (InputStream resource = connection.getInputStream()) {
-                    return this.inject(resource, classLoader);
+                Files.createDirectories(cachedArtifact.getParent());
+                Path partialArtifact = Files.createTempFile(cachedArtifact.getParent(),
+                        cachedArtifact.getFileName().toString(), ".tmp");
+                try {
+                    try (InputStream resource = connection.getInputStream()) {
+                        Files.copy(resource, partialArtifact, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    try {
+                        Files.move(partialArtifact, cachedArtifact, StandardCopyOption.ATOMIC_MOVE,
+                                StandardCopyOption.REPLACE_EXISTING);
+                    } catch (AtomicMoveNotSupportedException ignored) {
+                        Files.move(partialArtifact, cachedArtifact, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } finally {
+                    Files.deleteIfExists(partialArtifact);
                 }
+                return this.inject(cachedArtifact, classLoader);
             } catch (IOException exception) {
                 throw new RuntimeException("Failed to read from " + artifactUri, exception);
             } finally {
                 connection.disconnect();
             }
+        }
+
+        public Path inject(Path artifact, URLClassLoader classLoader) {
+            try {
+                ADD_URL.invoke(GET_UCP.invoke(classLoader), artifact.toUri().toURL());
+            } catch (Throwable exception) {
+                throw new RuntimeException(exception);
+            }
+
+            // ensure we successfully loaded everything
+            try {
+                classLoader.loadClass(this.className);
+            } catch (Throwable ignored) {
+                throw new IllegalStateException("Failed to load dependency '" + this.artifactId + "' into classloader " + classLoader);
+            }
+            return artifact;
         }
 
         public Path inject(InputStream resource, URLClassLoader classLoader) {
