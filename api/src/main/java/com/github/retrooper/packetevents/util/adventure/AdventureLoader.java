@@ -64,7 +64,7 @@ public final class AdventureLoader {
         } else {
             // adventure most likely doesn't exist on the classpath
             // yet, we just use a default adventure version in this case
-            ADVENTURE_VERSION = "4.26.1";
+            ADVENTURE_VERSION = "5.2.0";
         }
     }
 
