@@ -24,17 +24,18 @@ import com.github.retrooper.packetevents.util.adventure.AdventureLoader;
 import io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.net.URLClassLoader;
 import java.nio.file.Path;
 import java.util.Set;
 
 public class PacketEventsPlugin extends JavaPlugin {
 
-    private final URLClassLoader injectionLoader;
+    private final ClassLoader injectionLoader;
     private final Set<Path> injectedJars;
 
     public PacketEventsPlugin() {
-        this.injectionLoader = (URLClassLoader) PacketEventsPlugin.class.getClassLoader().getParent();
+        ClassLoader pluginLoader = PacketEventsPlugin.class.getClassLoader();
+        ClassLoader parentLoader = pluginLoader.getParent();
+        this.injectionLoader = parentLoader != null ? parentLoader : pluginLoader;
         this.injectedJars = AdventureLoader.injectAll(this.injectionLoader,
                 this.getDataFolder().toPath().resolve("libraries"), this.getLogger());
     }

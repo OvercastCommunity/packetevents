@@ -35,7 +35,6 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -86,7 +85,7 @@ public final class AdventureLoader {
         dependencies.add(new Dependency("net.kyori", "examination-string", "1.3.0", "net.kyori.examination.string.StringExaminer"));
         dependencies.add(new Dependency("net.kyori", "option", "1.1.0", "net.kyori.option.Option"));
         dependencies.add(new Dependency("net.kyori", "adventure-key", ADVENTURE_VERSION, "net.kyori.adventure.key.Key"));
-        dependencies.add(new Dependency("net.kyori", "adventure-api", "4.26.1", "net.kyori.adventure.text.ObjectComponent"));
+        dependencies.add(new Dependency("net.kyori", "adventure-api", ADVENTURE_VERSION, "net.kyori.adventure.text.ObjectComponent"));
         dependencies.add(new Dependency("net.kyori", "adventure-nbt", ADVENTURE_VERSION, "net.kyori.adventure.nbt.BinaryTag"));
         if (!PEVersion.fromString(ADVENTURE_VERSION).isOlderThan(new PEVersion(4, 14, 0))) {
             dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.json.JSONComponentSerializer"));
@@ -100,7 +99,7 @@ public final class AdventureLoader {
     private AdventureLoader() {
     }
 
-    public static Set<Path> injectAll(URLClassLoader classLoader, Path cacheDirectory, Logger logger) {
+    public static Set<Path> injectAll(ClassLoader classLoader, Path cacheDirectory, Logger logger) {
         // check each adventure dependency
         Set<Path> injectedJars = new HashSet<>();
         for (Dependency dependency : DEPENDENCIES) {
@@ -112,7 +111,7 @@ public final class AdventureLoader {
         return injectedJars;
     }
 
-    public static void uninjectAll(URLClassLoader loader, Set<Path> injectedJars) {
+    public static void uninjectAll(ClassLoader loader, Set<Path> injectedJars) {
         for (Dependency dependency : DEPENDENCIES) {
             CodeSource source = dependency.getCodeSource();
             if (source == null) {
@@ -136,7 +135,7 @@ public final class AdventureLoader {
 
     private static final class Dependency {
 
-        private static final MethodHandle GET_UCP, ADD_URL, GET_URLS;
+        private static final MethodHandles.Lookup TRUSTED_LOOKUP;
 
         static {
             MethodHandles.Lookup trustedLookup;
@@ -160,15 +159,7 @@ public final class AdventureLoader {
             } catch (ReflectiveOperationException exception) {
                 throw new RuntimeException("Error while getting trusted method lookup", exception);
             }
-
-            try {
-                Class<?> urlClassPathClass = URLClassLoader.class.getDeclaredField("ucp").getType();
-                GET_UCP = trustedLookup.findGetter(URLClassLoader.class, "ucp", urlClassPathClass);
-                ADD_URL = trustedLookup.findVirtual(urlClassPathClass, "addURL", MethodType.methodType(void.class, URL.class));
-                GET_URLS = trustedLookup.findVirtual(urlClassPathClass, "getURLs", MethodType.methodType(URL[].class));
-            } catch (ReflectiveOperationException exception) {
-                throw new RuntimeException("Error while looking up URLClassLoader injection methods", exception);
-            }
+            TRUSTED_LOOKUP = trustedLookup;
         }
 
         private final String groupId;
@@ -193,7 +184,7 @@ public final class AdventureLoader {
             return Reflection.getClassByNameWithoutException(this.className) != null;
         }
 
-        public Path inject(URI repoUri, Path cacheDirectory, URLClassLoader classLoader, Logger logger) {
+        public Path inject(URI repoUri, Path cacheDirectory, ClassLoader classLoader, Logger logger) {
             // resolve maven-based artifact url at {repo}{groupId}/{artifactId}/{version}/{artifactId}-{version}.jar
             URI artifactUri = repoUri.resolve(this.groupId.replace('.', '/') + "/" + this.artifactId
                     + "/" + this.version + "/" + this.artifactId + "-" + this.version + ".jar");
@@ -243,9 +234,9 @@ public final class AdventureLoader {
             }
         }
 
-        public Path inject(Path artifact, URLClassLoader classLoader) {
+        public Path inject(Path artifact, ClassLoader classLoader) {
             try {
-                ADD_URL.invoke(GET_UCP.invoke(classLoader), artifact.toUri().toURL());
+                addUrl(classLoader, artifact.toUri().toURL());
             } catch (Throwable exception) {
                 throw new RuntimeException(exception);
             }
@@ -259,7 +250,7 @@ public final class AdventureLoader {
             return artifact;
         }
 
-        public Path inject(InputStream resource, URLClassLoader classLoader) {
+        public Path inject(InputStream resource, ClassLoader classLoader) {
             Path tempFile;
             try {
                 // copy to external temp file
@@ -269,7 +260,7 @@ public final class AdventureLoader {
                 URL tempUrl = tempFile.toUri().toURL();
 
                 // append to classloader
-                ADD_URL.invoke(GET_UCP.invoke(classLoader), tempUrl);
+                addUrl(classLoader, tempUrl);
             } catch (Throwable exception) {
                 throw new RuntimeException(exception);
             }
@@ -284,7 +275,29 @@ public final class AdventureLoader {
             return tempFile;
         }
 
-        public void uninject(URLClassLoader classLoader, URL url) {
+        private static void addUrl(ClassLoader classLoader, URL url) throws Throwable {
+            Field ucpField = null;
+            for (Class<?> type = classLoader.getClass(); type != null; type = type.getSuperclass()) {
+                try {
+                    ucpField = type.getDeclaredField("ucp");
+                    break;
+                } catch (NoSuchFieldException ignored) {
+                    // continue searching the class loader hierarchy
+                }
+            }
+            if (ucpField == null) {
+                throw new IllegalStateException("Can't find URL class path in classloader " + classLoader);
+            }
+
+            Class<?> urlClassPathClass = ucpField.getType();
+            MethodHandle getUcp = TRUSTED_LOOKUP.findGetter(
+                    ucpField.getDeclaringClass(), ucpField.getName(), urlClassPathClass);
+            MethodHandle addUrl = TRUSTED_LOOKUP.findVirtual(
+                    urlClassPathClass, "addURL", MethodType.methodType(void.class, URL.class));
+            addUrl.invoke(getUcp.invoke(classLoader), url);
+        }
+
+        public void uninject(ClassLoader classLoader, URL url) {
             // TODO though not a priority
         }
 
