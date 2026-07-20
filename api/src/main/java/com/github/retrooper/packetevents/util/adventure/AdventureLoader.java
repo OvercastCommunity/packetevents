@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.jar.JarFile;
 import java.util.logging.Logger;
 
 @NullMarked
@@ -220,8 +221,16 @@ public final class AdventureLoader {
                     .resolve(this.version)
                     .resolve(this.artifactId + "-" + this.version + ".jar");
             if (Files.isRegularFile(cachedArtifact)) {
-                logger.info("Loading cached dependency " + this + "...");
-                return this.inject(cachedArtifact, classLoader);
+                if (this.isValidArtifact(cachedArtifact)) {
+                    logger.info("Loading cached dependency " + this + "...");
+                    return this.inject(cachedArtifact, classLoader);
+                }
+                logger.warning("Discarding invalid cached dependency " + this + " at " + cachedArtifact);
+                try {
+                    Files.delete(cachedArtifact);
+                } catch (IOException exception) {
+                    throw new RuntimeException("Failed to delete invalid cached dependency " + cachedArtifact, exception);
+                }
             }
 
             logger.info("Downloading dependency " + this + " from " + artifactUri + "...");
@@ -244,6 +253,9 @@ public final class AdventureLoader {
                     try (InputStream resource = connection.getInputStream()) {
                         Files.copy(resource, partialArtifact, StandardCopyOption.REPLACE_EXISTING);
                     }
+                    if (!this.isValidArtifact(partialArtifact)) {
+                        throw new IOException("Downloaded artifact is not a valid JAR containing " + this.className);
+                    }
                     try {
                         Files.move(partialArtifact, cachedArtifact, StandardCopyOption.ATOMIC_MOVE,
                                 StandardCopyOption.REPLACE_EXISTING);
@@ -258,6 +270,15 @@ public final class AdventureLoader {
                 throw new RuntimeException("Failed to read from " + artifactUri, exception);
             } finally {
                 connection.disconnect();
+            }
+        }
+
+        private boolean isValidArtifact(Path artifact) {
+            String classEntry = this.className.replace('.', '/') + ".class";
+            try (JarFile jar = new JarFile(artifact.toFile())) {
+                return jar.getJarEntry(classEntry) != null;
+            } catch (IOException | SecurityException ignored) {
+                return false;
             }
         }
 
