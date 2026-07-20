@@ -74,7 +74,7 @@ public final class AdventureNbtUtil {
             CHAR_BUFFER_SKIP_WHITESPACE = Reflection.getMethodExact(charBuffer, "skipWhitespace", charBuffer);
             CHAR_BUFFER_HAS_MORE = Reflection.getMethodExact(charBuffer, "hasMore", boolean.class);
             TAG_STRING_READER_CTOR = Reflection.getConstructor(tagStringReader, charBuffer);
-            TAG_STRING_READER_HETEROGENEOUS_LISTS = Reflection.getMethodExact(tagStringReader, "heterogeneousLists", tagStringReader, boolean.class);
+            TAG_STRING_READER_HETEROGENEOUS_LISTS = Reflection.getMethodExact(tagStringReader, "heterogeneousLists", void.class, boolean.class);
             TAG_STRING_READER_TAG = Reflection.getMethodExact(tagStringReader, "tag", BinaryTag.class);
 
             TAG_STRING_WRITER_CTOR = Reflection.getConstructor(tagStringWriter, Appendable.class, String.class);

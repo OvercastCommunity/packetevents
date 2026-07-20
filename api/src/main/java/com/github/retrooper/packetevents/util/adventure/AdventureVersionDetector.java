@@ -3,6 +3,7 @@ package com.github.retrooper.packetevents.util.adventure;
 import com.github.retrooper.packetevents.util.reflection.Reflection;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.inventory.Book;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.key.Keyed;
 import net.kyori.adventure.nbt.api.BinaryTagHolder;
@@ -25,6 +26,7 @@ import org.jetbrains.annotations.ApiStatus;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -55,7 +57,13 @@ final class AdventureVersionDetector {
     private static String detectAdventureVersion0() {
         // 5.x.x
         if (Reflection.getMethodExact(ClickEvent.class, "value", String.class) == null) {
-            return "5.0.0";
+            if (Reflection.getMethodExact(Book.class, "book", Book.class, Collection.class) == null) {
+                return "5.0.0";
+            } else if (!hasClass("net.kyori.adventure.text.BuildableComponent")) {
+                return "5.1.1";
+            } else {
+                return "5.2.0";
+            }
         }
 
         // 4.x.x
@@ -103,6 +111,15 @@ final class AdventureVersionDetector {
             return "4.25.0";
         } else {
             return "4.26.1";
+        }
+    }
+
+    private static boolean hasClass(String name) {
+        try {
+            Class.forName(name, false, Component.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException | LinkageError ignored) {
+            return false;
         }
     }
 }

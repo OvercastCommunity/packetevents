@@ -62,8 +62,8 @@ public final class AdventureLoader {
             ADVENTURE_VERSION = adventureVersion;
         } else {
             // adventure most likely doesn't exist on the classpath
-            // yet, we just use a default adventure version in this case
-            ADVENTURE_VERSION = "5.2.0";
+            // yet, use the newest default supported by the running JVM
+            ADVENTURE_VERSION = getJavaVersion() >= 21 ? "5.2.0" : "4.26.1";
         }
     }
 
@@ -84,8 +84,12 @@ public final class AdventureLoader {
         dependencies.add(new Dependency("net.kyori", "examination-string", "1.3.0", "net.kyori.examination.string.StringExaminer"));
         dependencies.add(new Dependency("net.kyori", "option", "1.1.0", "net.kyori.option.Option"));
         dependencies.add(new Dependency("net.kyori", "adventure-key", ADVENTURE_VERSION, "net.kyori.adventure.key.Key"));
-        dependencies.add(new Dependency("net.kyori", "adventure-api", ADVENTURE_VERSION, "net.kyori.adventure.text.ObjectComponent"));
+        dependencies.add(new Dependency("net.kyori", "adventure-api", ADVENTURE_VERSION, "net.kyori.adventure.text.Component"));
         dependencies.add(new Dependency("net.kyori", "adventure-nbt", ADVENTURE_VERSION, "net.kyori.adventure.nbt.BinaryTag"));
+        if (!PEVersion.fromString(ADVENTURE_VERSION).isOlderThan(new PEVersion(4, 20, 0))) {
+            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-commons", ADVENTURE_VERSION,
+                    "net.kyori.adventure.text.serializer.commons.ComponentTreeConstants"));
+        }
         if (!PEVersion.fromString(ADVENTURE_VERSION).isOlderThan(new PEVersion(4, 14, 0))) {
             dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.json.JSONComponentSerializer"));
             dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json-legacy-impl", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.json.legacyimpl.NBTLegacyHoverEventSerializer"));
@@ -96,6 +100,22 @@ public final class AdventureLoader {
     }
 
     private AdventureLoader() {
+    }
+
+    private static int getJavaVersion() {
+        String version = System.getProperty("java.specification.version", "1.8");
+        if (version.startsWith("1.")) {
+            version = version.substring(2);
+        }
+        int separator = version.indexOf('.');
+        if (separator != -1) {
+            version = version.substring(0, separator);
+        }
+        try {
+            return Integer.parseInt(version);
+        } catch (NumberFormatException ignored) {
+            return 8;
+        }
     }
 
     public static Set<Path> injectAll(ClassLoader classLoader, Path cacheDirectory, Logger logger) {

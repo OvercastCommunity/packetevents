@@ -33,6 +33,9 @@ public class PacketEventsPlugin extends JavaPlugin {
     private final Set<Path> injectedJars;
 
     public PacketEventsPlugin() {
+        // Bukkit initializes the plugin fields from JavaPlugin's constructor before this body runs.
+        // Legacy Bukkit constructs every plugin before invoking any onLoad callback, so the shared
+        // parent must be populated here before dependent plugins can resolve their bundled Adventure.
         ClassLoader pluginLoader = PacketEventsPlugin.class.getClassLoader();
         ClassLoader parentLoader = pluginLoader.getParent();
         this.injectionLoader = parentLoader != null ? parentLoader : pluginLoader;
