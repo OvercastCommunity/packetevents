@@ -41,7 +41,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.CodeSource;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -54,19 +53,6 @@ public final class AdventureLoader {
 
     // TODO don't use maven central here
     private static final URI REPO_URI = URI.create("https://repo1.maven.org/maven2/");
-    private static final String ADVENTURE_VERSION;
-
-    static {
-        // try to detect existing adventure version
-        String adventureVersion = AdventureVersionDetector.detectAdventureVersion();
-        if (adventureVersion != null) {
-            ADVENTURE_VERSION = adventureVersion;
-        } else {
-            // adventure most likely doesn't exist on the classpath
-            // yet, use the newest default supported by the running JVM
-            ADVENTURE_VERSION = getJavaVersion() >= 21 ? "5.2.0" : "4.26.1";
-        }
-    }
 
     /**
      * A list of all adventure dependencies which may be jar-in-jar'ed, depending on the platform.<br/>
@@ -77,27 +63,25 @@ public final class AdventureLoader {
      * The thing which does cause lots of issues is version conflicts - we include a pretty new version of adventure,
      * while some users may run 1.16.5 servers, which causes incompatibilities between the two adventure libs.
      */
-    private static final List<Dependency> DEPENDENCIES;
-
-    static {
+    private static List<Dependency> dependencies(String adventureVersion) {
         List<Dependency> dependencies = new ArrayList<>();
         dependencies.add(new Dependency("net.kyori", "examination-api", "1.3.0", "net.kyori.examination.Examinable"));
         dependencies.add(new Dependency("net.kyori", "examination-string", "1.3.0", "net.kyori.examination.string.StringExaminer"));
         dependencies.add(new Dependency("net.kyori", "option", "1.1.0", "net.kyori.option.Option"));
-        dependencies.add(new Dependency("net.kyori", "adventure-key", ADVENTURE_VERSION, "net.kyori.adventure.key.Key"));
-        dependencies.add(new Dependency("net.kyori", "adventure-api", ADVENTURE_VERSION, "net.kyori.adventure.text.Component"));
-        dependencies.add(new Dependency("net.kyori", "adventure-nbt", ADVENTURE_VERSION, "net.kyori.adventure.nbt.BinaryTag"));
-        if (!PEVersion.fromString(ADVENTURE_VERSION).isOlderThan(new PEVersion(4, 20, 0))) {
-            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-commons", ADVENTURE_VERSION,
+        dependencies.add(new Dependency("net.kyori", "adventure-key", adventureVersion, "net.kyori.adventure.key.Key"));
+        dependencies.add(new Dependency("net.kyori", "adventure-api", adventureVersion, "net.kyori.adventure.text.Component"));
+        dependencies.add(new Dependency("net.kyori", "adventure-nbt", adventureVersion, "net.kyori.adventure.nbt.BinaryTag"));
+        if (!PEVersion.fromString(adventureVersion).isOlderThan(new PEVersion(4, 20, 0))) {
+            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-commons", adventureVersion,
                     "net.kyori.adventure.text.serializer.commons.ComponentTreeConstants"));
         }
-        if (!PEVersion.fromString(ADVENTURE_VERSION).isOlderThan(new PEVersion(4, 14, 0))) {
-            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.json.JSONComponentSerializer"));
-            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json-legacy-impl", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.json.legacyimpl.NBTLegacyHoverEventSerializer"));
+        if (!PEVersion.fromString(adventureVersion).isOlderThan(new PEVersion(4, 14, 0))) {
+            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json", adventureVersion, "net.kyori.adventure.text.serializer.json.JSONComponentSerializer"));
+            dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-json-legacy-impl", adventureVersion, "net.kyori.adventure.text.serializer.json.legacyimpl.NBTLegacyHoverEventSerializer"));
         }
-        dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-gson", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.gson.GsonComponentSerializer"));
-        dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-legacy", ADVENTURE_VERSION, "net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer"));
-        DEPENDENCIES = Collections.unmodifiableList(dependencies);
+        dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-gson", adventureVersion, "net.kyori.adventure.text.serializer.gson.GsonComponentSerializer"));
+        dependencies.add(new Dependency("net.kyori", "adventure-text-serializer-legacy", adventureVersion, "net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer"));
+        return dependencies;
     }
 
     private AdventureLoader() {
@@ -120,9 +104,14 @@ public final class AdventureLoader {
     }
 
     public static Set<Path> injectAll(ClassLoader classLoader, Path cacheDirectory, Logger logger) {
+        String adventureVersion = AdventureVersionDetector.detectAdventureVersion(classLoader);
+        if (adventureVersion == null) {
+            adventureVersion = getJavaVersion() >= 21 ? "5.2.0" : "4.26.1";
+        }
+
         // check each adventure dependency
         Set<Path> injectedJars = new HashSet<>();
-        for (Dependency dependency : DEPENDENCIES) {
+        for (Dependency dependency : dependencies(adventureVersion)) {
             if (!dependency.isAvailable(classLoader)) {
                 logger.info("Loading dependency " + dependency + "...");
                 injectedJars.add(dependency.inject(REPO_URI, cacheDirectory, classLoader, logger));
@@ -132,7 +121,11 @@ public final class AdventureLoader {
     }
 
     public static void uninjectAll(ClassLoader loader, Set<Path> injectedJars) {
-        for (Dependency dependency : DEPENDENCIES) {
+        String adventureVersion = AdventureVersionDetector.detectAdventureVersion(loader);
+        if (adventureVersion == null) {
+            return;
+        }
+        for (Dependency dependency : dependencies(adventureVersion)) {
             CodeSource source = dependency.getCodeSource(loader);
             if (source == null) {
                 continue;

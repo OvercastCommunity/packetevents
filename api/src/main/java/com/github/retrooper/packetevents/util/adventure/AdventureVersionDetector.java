@@ -39,10 +39,10 @@ final class AdventureVersionDetector {
     private AdventureVersionDetector() {
     }
 
-    public static @Nullable String detectAdventureVersion() {
+    public static @Nullable String detectAdventureVersion(ClassLoader classLoader) {
         // check whether adventure is actually installed
         try {
-            Class.forName("net.kyori.adventure.text.Component");
+            Class.forName("net.kyori.adventure.text.Component", false, classLoader);
         } catch (NoClassDefFoundError | ClassNotFoundException ignored) {
             return null;
         }
