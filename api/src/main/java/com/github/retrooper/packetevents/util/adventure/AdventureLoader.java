@@ -19,7 +19,6 @@
 package com.github.retrooper.packetevents.util.adventure;
 
 import com.github.retrooper.packetevents.util.PEVersion;
-import com.github.retrooper.packetevents.util.reflection.Reflection;
 import org.jetbrains.annotations.ApiStatus;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
@@ -103,7 +102,7 @@ public final class AdventureLoader {
         // check each adventure dependency
         Set<Path> injectedJars = new HashSet<>();
         for (Dependency dependency : DEPENDENCIES) {
-            if (!dependency.isAvailable()) {
+            if (!dependency.isAvailable(classLoader)) {
                 logger.info("Loading dependency " + dependency + "...");
                 injectedJars.add(dependency.inject(REPO_URI, cacheDirectory, classLoader, logger));
             }
@@ -113,7 +112,7 @@ public final class AdventureLoader {
 
     public static void uninjectAll(ClassLoader loader, Set<Path> injectedJars) {
         for (Dependency dependency : DEPENDENCIES) {
-            CodeSource source = dependency.getCodeSource();
+            CodeSource source = dependency.getCodeSource(loader);
             if (source == null) {
                 continue;
             }
@@ -175,13 +174,21 @@ public final class AdventureLoader {
             this.className = className;
         }
 
-        public @Nullable CodeSource getCodeSource() {
-            Class<?> clazz = Reflection.getClassByNameWithoutException(this.className);
+        public @Nullable CodeSource getCodeSource(ClassLoader classLoader) {
+            Class<?> clazz = this.findClass(classLoader);
             return clazz == null ? null : clazz.getProtectionDomain().getCodeSource();
         }
 
-        public boolean isAvailable() {
-            return Reflection.getClassByNameWithoutException(this.className) != null;
+        public boolean isAvailable(ClassLoader classLoader) {
+            return this.findClass(classLoader) != null;
+        }
+
+        private @Nullable Class<?> findClass(ClassLoader classLoader) {
+            try {
+                return classLoader.loadClass(this.className);
+            } catch (ClassNotFoundException ignored) {
+                return null;
+            }
         }
 
         public Path inject(URI repoUri, Path cacheDirectory, ClassLoader classLoader, Logger logger) {
