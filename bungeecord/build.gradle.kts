@@ -15,5 +15,7 @@ dependencies {
     api(project(":netty-common"))
 
     compileOnly(libs.bungeecord)
+    implementation(libs.bundles.adventure)
+    implementation(libs.bundles.adventure.serializers)
     implementation(libs.bstats.bungeecord)
 }
